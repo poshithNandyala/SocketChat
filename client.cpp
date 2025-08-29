@@ -1,4 +1,3 @@
-// client.cpp
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -62,8 +61,7 @@ bool read_encrypted_message(int fd, std::string &out_plain) {
     if (!recv_all(fd, &len_be, sizeof(len_be))) return false;
     uint32_t len = ntohl(len_be);
     if (len == 0) return false;
-    std::string payload;
-    payload.resize(len);
+    std::string payload(len, 0);
     if (!recv_all(fd, &payload[0], len)) return false;
     xor_inplace(payload, XOR_KEY);
     if (payload.size() < 1) return false;
@@ -86,17 +84,6 @@ void reader_thread_fn(int sock) {
     exit(0);
 }
 
-void bot_sender_thread(int sock, int id) {
-    int cnt = 0;
-    while (true) {
-        std::string msg = "bot#" + std::to_string(id) + " hello " + std::to_string(cnt++);
-        if (!write_encrypted_message(sock, msg)) break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(500 + (id % 50)));
-    }
-    exit(0);
-}
-
-// Simple UDP discovery: sends "DISCOVER" to localhost:UDP_PORT and waits for reply "ip:port"
 bool do_udp_discovery(std::string &out_host, int &out_port) {
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) return false;
@@ -107,7 +94,6 @@ bool do_udp_discovery(std::string &out_host, int &out_port) {
 
     const char* msg = "DISCOVER";
     sendto(sock, msg, strlen(msg), 0, (sockaddr*)&dest, sizeof(dest));
-    // set timeout
     timeval tv; tv.tv_sec = 1; tv.tv_usec = 0;
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
@@ -118,7 +104,6 @@ bool do_udp_discovery(std::string &out_host, int &out_port) {
     if (n <= 0) return false;
     buf[n] = 0;
     std::string reply(buf);
-    // expected format e.g. "127.0.0.1:5555"
     size_t colon = reply.find(':');
     if (colon == std::string::npos) return false;
     out_host = reply.substr(0, colon);
@@ -129,13 +114,6 @@ bool do_udp_discovery(std::string &out_host, int &out_port) {
 int main(int argc, char** argv) {
     std::string host = "127.0.0.1";
     int port = 5555;
-    bool bot_mode = false;
-    int bot_id = 1;
-
-    // usage:
-    // ./client discover          -> attempt UDP discovery then connect
-    // ./client <host> <port>     -> connect to given host/port
-    // add --bot [id] to make client send messages automatically for testing
 
     int argi = 1;
     if (argi < argc && std::string(argv[argi]) == "discover") {
@@ -155,18 +133,6 @@ int main(int argc, char** argv) {
         if (argi < argc) port = atoi(argv[argi++]);
     }
 
-    // parse optional flags
-    while (argi < argc) {
-        std::string a(argv[argi++]);
-        if (a == "--bot") {
-            bot_mode = true;
-            if (argi < argc) {
-                bot_id = atoi(argv[argi++]);
-                if (bot_id <= 0) bot_id = 1;
-            }
-        }
-    }
-
     int sock = socket(AF_INET, SOCK_STREAM, 0);
     if (sock < 0) { perror("socket"); return 1; }
 
@@ -181,15 +147,17 @@ int main(int argc, char** argv) {
     }
     std::cout << "Connected to " << host << ":" << port << "\n";
 
+    // send username first
+    std::string username;
+    std::cout << "Enter your username: ";
+    std::getline(std::cin, username);
+    if (!write_encrypted_message(sock, username)) {
+        std::cerr << "Failed to send username\n";
+        return 1;
+    }
+
     std::thread reader(reader_thread_fn, sock);
     reader.detach();
-
-    if (bot_mode) {
-        std::thread bot(bot_sender_thread, sock, bot_id);
-        bot.detach();
-        // keep main alive
-        while (true) std::this_thread::sleep_for(std::chrono::seconds(10));
-    }
 
     std::string line;
     std::cout << "> " << std::flush;
