@@ -13,11 +13,23 @@ SocketChat is a simple encrypted chat application written in C++ using TCP and U
 
 - `server.cpp` — Server application source code
 - `client.cpp` — Client application source code
+- `CMakeLists.txt` — CMake build configuration
 - `Readme.md` — Project documentation
 
 ## Building
 
-Compile using g++ (on Linux or WSL):
+### Using CMake (Recommended)
+
+```sh
+mkdir build
+cd build
+cmake ..
+make
+```
+
+This will generate two executables: `server` and `client`.
+
+### Using g++ (Manual)
 
 ```sh
 g++ -std=c++11 -o server server.cpp -pthread
